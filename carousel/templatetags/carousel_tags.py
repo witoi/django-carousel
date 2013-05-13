@@ -1,70 +1,48 @@
 from django import template
-from django.core.exceptions import ObjectDoesNotExist
-from carousel.models import Carousel
+
+import six
+
+from ..models import Carousel
+
 
 register = template.Library()
 
-@register.tag('carousel')
-def do_carousel(parser, token):
-    """
-    {% carousel $carousel_obj %}
-    """
-    carousel = token.split_contents()[1]
-    return CarouselNode(object=carousel)
+DEFAULT_TEMPLATE_NAMES = ['carousel/templatetags/carousel.html']
 
 
-@register.tag('carousel_with_name')
-def do_carousel_with_name(parser, token):
-    """
-    {% carousel_with_name $carousel_name %}
-    """
-    carousel_name = token.split_contents()[1]
-    return CarouselNode(name=carousel_name)
+def render_carousel(context, template_name):
+    template_names = get_template_names(template_name=template_name)
+    return template.loader.render_to_string(template_names, context)
 
 
-@register.tag('carousel_with_id')
-def do_carousel_with_id(parser, token):
-    """
-    {% carousel_with_name $carousel_id %}
-    """
-    carousel_id = token.split_contents()[1]
-    return CarouselNode(id=carousel_id)
+def get_template_names(template_name):
+    template_names = DEFAULT_TEMPLATE_NAMES
+    if template_name:
+        template_names.insert(0, template_name)
+    return template_names
 
 
-class CarouselNode(template.Node):
-    def __init__(self, object=None, name=None, id=None):
-        self.carousel_object = object
-        self.carousel_name = name
-        self.carousel_id = id
-    
-    
-    def get_object(self, context):
-        """
-        Retrieves the object from the database according to the context.
-        """
-        obj, name, id = self.carousel_object, self.carousel_name, self.carousel_id
-        
-        if obj is not None:
-            return template.Variable(obj).resolve(context)
-        
-        if name is not None:
-            if name[0] == name[-1] and name[0] in ('"', "'"):
-                name = name[1:-1]
-            else: # a template variable was given
-                name = template.Variable(name).resolve(context)
-            return Carousel.objects.get(name=name)
-        
-        try:
-            id = int(id)
-        except ValueError:
-            id = template.Variable(id).resolve(context)
-        return Carousel.objects.get(pk=id)
-    
-    def render(self, context):
-        try:
-            carousel = self.get_object(context)
-        except ObjectDoesNotExist:
-            return ''
-        
-        context['carousel'] = carousel
-        return template.loader.render_to_string('carousel/templatetags/carousel.html', context)
+@register.simple_tag(takes_context=True)
+def carousel(context, carousel, template_name=None):
+    if isinstance(carousel, six.string_types):
+        return carousel_with_name(context, name=carousel, template_name=template_name)
+    context['carousel'] = carousel
+    return render_carousel(context, template_name)
+
+
+@register.simple_tag(takes_context=True)
+def carousel_with_name(context, name, template_name=None):
+    try:
+        context['carousel'] = Carousel.objects.get(name=name)
+        return render_carousel(context, template_name)
+    except Carousel.DoesNotExist:
+        return ''
+
+
+@register.simple_tag(takes_context=True)
+def carousel_with_id(context, id, template_name=None):
+    try:
+        context['carousel'] = Carousel.objects.get(id=id)
+        return render_carousel(context, template_name)
+    except Carousel.DoesNotExist:
+        return ''
